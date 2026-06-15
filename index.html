@@ -18,6 +18,19 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .scale-pop { animation: pop .18s ease-out; }
   @keyframes pop { from { transform: scale(.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+
+  .job-card {
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background-color .18s ease;
+  }
+  .job-card.active-job {
+    border-color: #059669 !important;
+    box-shadow: 0 0 0 4px rgba(5,150,105,.16), 0 10px 24px rgba(5,150,105,.18);
+    transform: scale(1.01);
+    background: #ffffff;
+  }
+  .job-card.active-job .active-label {
+    display: inline-flex;
+  }
 </style>
 </head>
 <body class="min-h-screen w-full bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50">
@@ -106,6 +119,39 @@ function distKm(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
 }
 
+function safeId(str) {
+  return String(str || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function estimateDriveTime(distanceKm) {
+  if (distanceKm == null || isNaN(distanceKm)) return '—';
+  // ประมาณจากความเร็วเฉลี่ย 55 กม./ชม. เหมาะกับงานขนส่งต่างจังหวัด
+  const minutes = Math.max(1, Math.round((distanceKm / 55) * 60));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return h + ' ชม. ' + m + ' นาที';
+  if (h > 0) return h + ' ชม.';
+  return m + ' นาที';
+}
+
+function openNavigate(orderId) {
+  const job = JOBS.find(function(j) { return j.orderId === orderId; });
+  if (!job || !job.pos) {
+    showToast('ยังไม่มีพิกัดสำหรับงานนี้ครับ', 'warn');
+    return;
+  }
+
+  let url = 'https://www.google.com/maps/dir/?api=1&destination=' +
+    encodeURIComponent(job.pos[0] + ',' + job.pos[1]) +
+    '&travelmode=driving';
+
+  if (DRIVER_POS && DRIVER_POS_IS_REAL) {
+    url += '&origin=' + encodeURIComponent(DRIVER_POS[0] + ',' + DRIVER_POS[1]);
+  }
+
+  window.open(url, '_blank');
+}
+
 let JOBS = [];
 let MY_PLATES = [];
 let MY_NAME = '';
@@ -116,6 +162,7 @@ let CLAIMED_IDS = new Set();
 let SELECTED_PLATE = null;
 let FILTER_ORDER_ID = null;
 let CLAIMING = false;
+let ACTIVE_ORDER_ID = null;
 let map, markers = {}, driverMarker;
 
 const driverIcon = L.divIcon({
@@ -181,14 +228,17 @@ function rebuildJobMarkers() {
   JOBS.forEach(function(j) {
     if (!j.pos) return;
     const m = L.marker(j.pos, { icon: CLAIMED_IDS.has(j.orderId) ? doneIcon : jobIcon }).addTo(map);
-    m.bindPopup(jobPopupHtml(j), { minWidth: 200 });
+    m.bindPopup(jobPopupHtml(j), { minWidth: 220 });
+    m.on('click', function() {
+      highlightJobCard(j.orderId, false);
+    });
     markers[j.orderId] = m;
   });
 }
 
 function jobPopupHtml(j) {
   const distLine = (j.distanceKm != null)
-    ? '🧭 ' + j.distanceKm.toFixed(1) + ' กม. จากตำแหน่งคุณ'
+    ? '🧭 ' + j.distanceKm.toFixed(1) + ' กม. จากตำแหน่งคุณ<br>⏱️ ประมาณ ' + estimateDriveTime(j.distanceKm)
     : '🧭 ไม่ทราบระยะทาง';
   let h = '<div style="font-family:\'Sarabun\',sans-serif;min-width:180px">';
   h += '<div style="font-weight:600;color:#065F46;margin-bottom:2px">' + escapeHtml(j.gardenName) + '</div>';
@@ -198,19 +248,38 @@ function jobPopupHtml(j) {
   h += '📦 กระบะ ' + escapeHtml(j.binCount) + ' ใบ' + (j.rspo === 'มี' ? ' · 🌿 RSPO' : '') + '<br>';
   h += distLine;
   h += '</div>';
-  h += '<button onclick="focusJob(\'' + escapeHtml(j.orderId) + '\')" style="margin-top:8px;width:100%;padding:6px 0;border-radius:8px;background:#059669;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:\'Sarabun\',sans-serif">ดูรายละเอียด</button>';
+  h += '<div style="display:flex;gap:6px;margin-top:8px">';
+  h += '<button onclick="highlightJobCard(\'' + escapeHtml(j.orderId) + '\', true)" style="flex:1;padding:6px 0;border-radius:8px;background:#059669;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:\'Sarabun\',sans-serif">ดูการ์ด</button>';
+  h += '<button onclick="openNavigate(\'' + escapeHtml(j.orderId) + '\')" style="flex:1;padding:6px 0;border-radius:8px;background:#F59E0B;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:\'Sarabun\',sans-serif">นำทาง</button>';
+  h += '</div>';
   h += '</div>';
   return h;
 }
 
-function focusJob(orderId) {
-  FILTER_ORDER_ID = orderId;
+function highlightJobCard(orderId, scrollToCard) {
+  ACTIVE_ORDER_ID = orderId;
   render();
-  document.getElementById('job-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const el = document.getElementById('job-card-' + safeId(orderId));
+  if (el && scrollToCard !== false) {
+    setTimeout(function() {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }
+
+  const job = JOBS.find(function(j) { return j.orderId === orderId; });
+  if (job && job.pos && map) {
+    map.panTo(job.pos);
+  }
+}
+
+function focusJob(orderId) {
+  highlightJobCard(orderId, true);
 }
 
 function clearJobFilter() {
   FILTER_ORDER_ID = null;
+  ACTIVE_ORDER_ID = null;
   render();
 }
 
@@ -227,17 +296,23 @@ function jobCardHtml(job) {
     ? '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">' + icon("navigation", 11) + job.distanceKm.toFixed(1) + ' กม.</span>'
     : '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-stone-100 text-stone-400 border border-stone-200 whitespace-nowrap">' + icon("navigation", 11) + '— กม.</span>';
 
-  let h = '<div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden ' + (claimed ? 'opacity-50' : '') + '">';
+  const timeBadge = (job.distanceKm != null)
+    ? '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">⏱️ ' + estimateDriveTime(job.distanceKm) + '</span>'
+    : '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-stone-100 text-stone-400 border border-stone-200 whitespace-nowrap">⏱️ —</span>';
+
+  const active = ACTIVE_ORDER_ID === job.orderId;
+  let h = '<div id="job-card-' + safeId(job.orderId) + '" class="job-card bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden ' + (claimed ? 'opacity-50' : '') + (active ? ' active-job' : '') + '">';
   h += '<div class="p-4 space-y-3">';
   h += '<div class="flex items-start justify-between gap-3">';
   h += '<div class="min-w-0">';
   h += '<div class="flex items-center gap-1.5 flex-wrap">';
   h += '<p class="font-semibold text-emerald-900 truncate">' + escapeHtml(job.gardenName || job.orderId) + '</p>';
+  h += '<span class="active-label hidden items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-600 text-white">กำลังเลือก</span>';
   h += rspoBadge;
   h += '</div>';
   h += '<p class="text-xs text-amber-700/70 mt-0.5">' + escapeHtml(job.orderId) + '</p>';
   h += '</div>';
-  h += '<div class="flex flex-col items-end gap-1.5 shrink-0">' + distanceBadge + jobTypeBadge + '</div>';
+  h += '<div class="flex flex-col items-end gap-1.5 shrink-0">' + distanceBadge + timeBadge + jobTypeBadge + '</div>';
   h += '</div>';
 
   h += '<div class="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-emerald-800/90">';
@@ -253,9 +328,12 @@ function jobCardHtml(job) {
     h += '<p class="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 flex items-start gap-1.5">' + icon("calendar", 13, "mt-0.5 shrink-0") + escapeHtml(job.note) + '</p>';
   }
 
+  h += '<div class="grid grid-cols-2 gap-2 mt-1">';
+  h += '<button onclick="openNavigate(\'' + escapeHtml(job.orderId) + '\')" class="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">' + icon("navigation", 16) + 'นำทาง</button>';
   h += '<button onclick="openClaimModal(\'' + escapeHtml(job.orderId) + '\')" ' + (claimed ? 'disabled' : '') +
-    ' class="w-full mt-1 py-2.5 rounded-xl ' + (claimed ? 'bg-stone-200 text-stone-500' : 'bg-emerald-600 hover:bg-emerald-700 text-white') + ' font-semibold text-sm transition-colors flex items-center justify-center gap-2">' +
+    ' class="py-2.5 rounded-xl ' + (claimed ? 'bg-stone-200 text-stone-500' : 'bg-emerald-600 hover:bg-emerald-700 text-white') + ' font-semibold text-sm transition-colors flex items-center justify-center gap-2">' +
     icon("check", 16) + (claimed ? 'รับแล้ว' : 'รับงานนี้') + '</button>';
+  h += '</div>';
 
   h += '</div></div>';
   return h;
@@ -398,6 +476,7 @@ async function confirmClaim(orderId) {
     if (data.success) {
       const job = JOBS.find(function(j) { return j.orderId === orderId; });
       CLAIMED_IDS.add(orderId);
+      ACTIVE_ORDER_ID = null;
       if (markers[orderId] && job) {
         markers[orderId].setIcon(doneIcon);
         markers[orderId].bindPopup(escapeHtml(job.gardenName) + '<br>รับงานแล้ว').openPopup();
