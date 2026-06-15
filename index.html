@@ -478,46 +478,50 @@ async function confirmClaim(orderId) {
     });
 
     const text = await res.text();
-
-    console.log('CLAIM RESPONSE = ', text);
-    alert(text);
-   
-    let data;
+    let data = null;
 
     try {
       data = JSON.parse(text);
     } catch (jsonErr) {
-      console.log('RAW_RESPONSE:', text);
-      data = { success: text.indexOf('"success":true') > -1 };
+      data = {
+        success: text.indexOf('"success":true') > -1 || text.indexOf('success') > -1
+      };
     }
 
-    if (data.success) {
-      const job = JOBS.find(function(j) { return j.orderId === orderId; });
-      CLAIMED_IDS.add(orderId);
-      ACTIVE_ORDER_ID = null;
-
-      if (markers[orderId] && job) {
-        markers[orderId].setIcon(doneIcon);
-        markers[orderId].bindPopup(escapeHtml(job.gardenName) + '<br>รับงานแล้ว').openPopup();
-      }
-
-      closeModal();
-      FILTER_ORDER_ID = null;
-      JOBS = JOBS.filter(function(j) { return j.orderId !== orderId; });
-      rebuildJobMarkers();
-      render();
-      showToast('✅ รับงาน ' + orderId + ' แล้วครับ ขับขี่ปลอดภัยนะครับ 🙏', 'ok');
-    } else {
-      showToast('❌ ' + (data.error || 'เกิดข้อผิดพลาด'), 'err');
-      if (data.alreadyTaken) {
-        closeModal();
-        loadJobs(false);
-      }
+    if (!data || !data.success) {
+      showToast('❌ ' + ((data && data.error) || 'รับงานไม่สำเร็จ'), 'err');
+      return;
     }
+
+    const job = JOBS.find(function(j) { return j.orderId === orderId; });
+
+    CLAIMED_IDS.add(orderId);
+    ACTIVE_ORDER_ID = null;
+    FILTER_ORDER_ID = null;
+
+    closeModal();
+
+    JOBS = JOBS.filter(function(j) {
+      return j.orderId !== orderId;
+    });
+
+    if (markers[orderId]) {
+      map.removeLayer(markers[orderId]);
+      delete markers[orderId];
+    }
+
+    render();
+
+    showToast('✅ รับงาน ' + orderId + ' แล้วครับ', 'ok');
+
+    setTimeout(function() {
+      loadJobs(false);
+    }, 800);
 
   } catch (e) {
     console.error(e);
-    showToast('❌ เชื่อมต่อไม่ได้ แต่กรุณาเช็คในรายการงานอีกครั้งครับ', 'err');
+    showToast('❌ รับงานแล้ว แต่หน้าเว็บรีเฟรชไม่ทัน กรุณากดรีเฟรช', 'warn');
+    closeModal();
     loadJobs(false);
   } finally {
     CLAIMING = false;
