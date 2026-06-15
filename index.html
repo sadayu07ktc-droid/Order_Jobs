@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>งานว่างใกล้คุณ — SSB</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  * { font-family: 'Sarabun', sans-serif; }
+  body { -webkit-tap-highlight-color: transparent; }
+  #map { z-index: 0; }
+  .leaflet-popup-content { font-family: 'Sarabun', sans-serif; font-size: 13px; }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .scale-pop { animation: pop .18s ease-out; }
+  @keyframes pop { from { transform: scale(.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+</style>
+</head>
+<body class="min-h-screen w-full bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50">
+
+<div class="p-4 sm:p-6 max-w-2xl mx-auto space-y-4 pb-10">
+
+  <div class="bg-gradient-to-r from-emerald-700 to-emerald-600 rounded-2xl p-5 shadow-lg text-white">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>
+          งานว่างใกล้คุณ
+        </h1>
+        <p class="text-emerald-100 text-sm mt-1" id="driver-name">SSB Smart Supply</p>
+      </div>
+      <button onclick="loadJobs(true)" id="refresh-btn" class="flex items-center gap-2 bg-white/15 hover:bg-white/25 transition-colors rounded-xl px-3 py-2 text-sm font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="refresh-icon"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        รีเฟรช
+      </button>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between flex-wrap gap-2 px-1">
+    <p class="text-sm text-emerald-900 font-medium" id="job-count"></p>
+    <button id="sort-btn" class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-white border-amber-200 text-emerald-800 transition-colors">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      เรียงตามระยะใกล้สุด
+    </button>
+  </div>
+
+  <div id="map" class="w-full h-72 rounded-2xl border border-amber-200"></div>
+
+  <div id="job-list" class="space-y-3"></div>
+
+  <div id="claim-banner" class="hidden p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm scale-pop"></div>
+
+</div>
+
+<div id="modal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+  <div id="modal-content" class="bg-white rounded-2xl p-5 max-w-sm w-full scale-pop space-y-4"></div>
+</div>
+
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hidden"></div>
+
+<div id="loading" class="fixed inset-0 bg-amber-50/90 flex flex-col items-center justify-center gap-3 z-50">
+  <svg class="spin" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
+    <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+    <path d="M12 2a10 10 0 0 1 10 10"/>
+  </svg>
+  <p class="text-sm text-amber-700">กำลังโหลดงานว่าง...</p>
+</div>
+
+<script>
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbw4UvKuRrAQ_3Ldm8U0VJqfjfBQUSYaTEdrxkdXUVN98G68XseCquhDeXfMgU8cVYaY/exec';
+const LIFF_ID = '2010274217-Ot7vGhri';
+
+const ICONS = {
+  truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  crate: '<path d="M2 7h20"/><path d="M3 7v12a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7"/><path d="M2 7l2.5-5h15L22 7"/><path d="M12 12v6"/><path d="M8 12v6"/><path d="M16 12v6"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  navigation: '<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
+  check: '<path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+};
+function icon(name, size, extraClass) {
+  size = size || 16; extraClass = extraClass || '';
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="' + extraClass + '">' + (ICONS[name] || '') + '</svg>';
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = (str == null) ? '' : String(str);
+  return div.innerHTML;
+}
+function formatDateDMY(dateStr) {
+  const parts = String(dateStr).split('-');
+  if (parts.length !== 3) return escapeHtml(dateStr);
+  return parts[2] + '-' + parts[1] + '-' + parts[0];
+}
+function distKm(a, b) {
+  const R = 6371;
+  const dLat = (b[0]-a[0]) * Math.PI/180;
+  const dLon = (b[1]-a[1]) * Math.PI/180;
+  const x = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+}
+
+let JOBS = [];
+let MY_PLATES = [];
+let MY_NAME = '';
+let DRIVER_POS = null;
+let DRIVER_POS_IS_REAL = false;
+let SORT_BY_DISTANCE = false;
+let CLAIMED_IDS = new Set();
+let SELECTED_PLATE = null;
+let FILTER_ORDER_ID = null;
+let CLAIMING = false;
+let map, markers = {}, driverMarker;
+
+const driverIcon = L.divIcon({
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#4A7C3F;border:2px solid white;box-shadow:0 0 0 2px rgba(74,124,63,.25)"></div>',
+  className: '', iconSize: [16,16], iconAnchor: [8,8]
+});
+const jobIcon = L.divIcon({
+  html: '<div style="width:14px;height:14px;border-radius:50%;background:#D85A30;border:2px solid white"></div>',
+  className: '', iconSize: [14,14], iconAnchor: [7,7]
+});
+const doneIcon = L.divIcon({
+  html: '<div style="width:14px;height:14px;border-radius:50%;background:#888;border:2px solid white"></div>',
+  className: '', iconSize: [14,14], iconAnchor: [7,7]
+});
+
+function initMap() {
+  map = L.map('map', { zoomControl: false }).setView([13.140, 101.380], 9);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap, © CARTO', maxZoom: 19, subdomains: 'abcd'
+  }).addTo(map);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        DRIVER_POS = [pos.coords.latitude, pos.coords.longitude];
+        DRIVER_POS_IS_REAL = true;
+        placeDriverMarker();
+        recomputeDistances();
+        rebuildJobMarkers();
+        map.setView(DRIVER_POS, 11);
+        render();
+      },
+      function(err) {
+        console.warn('Geolocation denied/unavailable:', err.message);
+        render();
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+}
+
+function placeDriverMarker() {
+  if (!DRIVER_POS) return;
+  if (driverMarker) {
+    driverMarker.setLatLng(DRIVER_POS);
+  } else {
+    driverMarker = L.marker(DRIVER_POS, { icon: driverIcon }).addTo(map);
+  }
+  driverMarker.bindPopup(DRIVER_POS_IS_REAL ? '📍 ตำแหน่งของคุณ (GPS จริง)' : '📍 ตำแหน่งของคุณ');
+}
+
+function recomputeDistances() {
+  JOBS.forEach(function(j) {
+    j.distanceKm = (DRIVER_POS && j.pos) ? distKm(DRIVER_POS, j.pos) : null;
+  });
+}
+
+function rebuildJobMarkers() {
+  if (!map) return;
+  Object.values(markers).forEach(function(m) { map.removeLayer(m); });
+  markers = {};
+  JOBS.forEach(function(j) {
+    if (!j.pos) return;
+    const m = L.marker(j.pos, { icon: CLAIMED_IDS.has(j.orderId) ? doneIcon : jobIcon }).addTo(map);
+    m.bindPopup(jobPopupHtml(j), { minWidth: 200 });
+    markers[j.orderId] = m;
+  });
+}
+
+function jobPopupHtml(j) {
+  const distLine = (j.distanceKm != null)
+    ? '🧭 ' + j.distanceKm.toFixed(1) + ' กม. จากตำแหน่งคุณ'
+    : '🧭 ไม่ทราบระยะทาง';
+  let h = '<div style="font-family:\'Sarabun\',sans-serif;min-width:180px">';
+  h += '<div style="font-weight:600;color:#065F46;margin-bottom:2px">' + escapeHtml(j.gardenName) + '</div>';
+  h += '<div style="font-size:11px;color:#92722A;margin-bottom:4px">' + escapeHtml(j.orderId) + '</div>';
+  h += '<div style="font-size:12px;color:#374151;line-height:1.5">';
+  h += '📅 ' + formatDateDMY(j.date) + ' · ' + escapeHtml(j.time) + '<br>';
+  h += '📦 กระบะ ' + escapeHtml(j.binCount) + ' ใบ' + (j.rspo === 'มี' ? ' · 🌿 RSPO' : '') + '<br>';
+  h += distLine;
+  h += '</div>';
+  h += '<button onclick="focusJob(\'' + escapeHtml(j.orderId) + '\')" style="margin-top:8px;width:100%;padding:6px 0;border-radius:8px;background:#059669;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:\'Sarabun\',sans-serif">ดูรายละเอียด</button>';
+  h += '</div>';
+  return h;
+}
+
+function focusJob(orderId) {
+  FILTER_ORDER_ID = orderId;
+  render();
+  document.getElementById('job-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearJobFilter() {
+  FILTER_ORDER_ID = null;
+  render();
+}
+
+function jobCardHtml(job) {
+  const claimed = CLAIMED_IDS.has(job.orderId);
+
+  const rspoBadge = job.rspo === 'มี'
+    ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">' + icon("leaf", 11) + 'RSPO</span>'
+    : '';
+  const jobTypeBadge = (job.jobType && job.jobType !== 'ปาล์ม')
+    ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-800 border border-sky-300">' + escapeHtml(job.jobType) + '</span>'
+    : '';
+  const distanceBadge = (job.distanceKm != null)
+    ? '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">' + icon("navigation", 11) + job.distanceKm.toFixed(1) + ' กม.</span>'
+    : '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-stone-100 text-stone-400 border border-stone-200 whitespace-nowrap">' + icon("navigation", 11) + '— กม.</span>';
+
+  let h = '<div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden ' + (claimed ? 'opacity-50' : '') + '">';
+  h += '<div class="p-4 space-y-3">';
+  h += '<div class="flex items-start justify-between gap-3">';
+  h += '<div class="min-w-0">';
+  h += '<div class="flex items-center gap-1.5 flex-wrap">';
+  h += '<p class="font-semibold text-emerald-900 truncate">' + escapeHtml(job.gardenName || job.orderId) + '</p>';
+  h += rspoBadge;
+  h += '</div>';
+  h += '<p class="text-xs text-amber-700/70 mt-0.5">' + escapeHtml(job.orderId) + '</p>';
+  h += '</div>';
+  h += '<div class="flex flex-col items-end gap-1.5 shrink-0">' + distanceBadge + jobTypeBadge + '</div>';
+  h += '</div>';
+
+  h += '<div class="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-emerald-800/90">';
+  h += '<span class="flex items-center gap-1.5">' + icon("calendar", 14, "text-amber-500") + formatDateDMY(job.date) + ' · ' + escapeHtml(job.time) + '</span>';
+  h += '<span class="flex items-center gap-1.5">' + icon("pin", 14, "text-amber-500") + escapeHtml(job.pickup || "—") + '</span>';
+  h += '<span class="flex items-center gap-1.5">' + icon("crate", 14, "text-amber-500") + escapeHtml(job.binCount) + ' ใบ</span>';
+  h += '</div>';
+
+  if (job.rampInfo) {
+    h += '<p class="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 flex items-start gap-1.5">' + icon("pin", 13, "mt-0.5 shrink-0") + escapeHtml(job.rampInfo) + '</p>';
+  }
+  if (job.note) {
+    h += '<p class="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 flex items-start gap-1.5">' + icon("calendar", 13, "mt-0.5 shrink-0") + escapeHtml(job.note) + '</p>';
+  }
+
+  h += '<button onclick="openClaimModal(\'' + escapeHtml(job.orderId) + '\')" ' + (claimed ? 'disabled' : '') +
+    ' class="w-full mt-1 py-2.5 rounded-xl ' + (claimed ? 'bg-stone-200 text-stone-500' : 'bg-emerald-600 hover:bg-emerald-700 text-white') + ' font-semibold text-sm transition-colors flex items-center justify-center gap-2">' +
+    icon("check", 16) + (claimed ? 'รับแล้ว' : 'รับงานนี้') + '</button>';
+
+  h += '</div></div>';
+  return h;
+}
+
+function render() {
+  const gpsLabel = DRIVER_POS_IS_REAL
+    ? '<span class="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">' + icon("navigation", 11) + 'ใช้ตำแหน่ง GPS จริง</span>'
+    : '<span class="inline-flex items-center gap-1 text-[11px] font-medium text-stone-400">' + icon("navigation", 11) + 'ไม่ทราบตำแหน่ง</span>';
+
+  if (FILTER_ORDER_ID) {
+    const job = JOBS.find(function(j) { return j.orderId === FILTER_ORDER_ID; });
+    document.getElementById('job-count').innerHTML =
+      '<span class="flex items-center gap-2 flex-wrap">' +
+        '<button onclick="clearJobFilter()" class="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border bg-white border-amber-200 text-emerald-800">' + icon("x", 12) + 'ดูทุกงาน</button>' +
+        '<span>กำลังดู: ' + escapeHtml(job ? job.gardenName : FILTER_ORDER_ID) + '</span>' +
+      '</span>';
+    document.getElementById('job-list').innerHTML = job ? jobCardHtml(job) : '';
+    return;
+  }
+
+  document.getElementById('job-count').innerHTML = 'มีงานว่าง ' + JOBS.length + ' งาน — กดเพื่อรับงาน &nbsp; ' + gpsLabel;
+
+  let list = JOBS.slice();
+  if (SORT_BY_DISTANCE) {
+    list.sort(function(a, b) {
+      if (a.distanceKm == null) return 1;
+      if (b.distanceKm == null) return -1;
+      return a.distanceKm - b.distanceKm;
+    });
+  }
+
+  if (list.length === 0) {
+    document.getElementById('job-list').innerHTML = '<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-600">🎉 ตอนนี้ไม่มีงานว่างครับ</div>';
+  } else {
+    document.getElementById('job-list').innerHTML = list.map(jobCardHtml).join('');
+  }
+}
+
+document.getElementById('sort-btn').addEventListener('click', function() {
+  SORT_BY_DISTANCE = !SORT_BY_DISTANCE;
+  const btn = document.getElementById('sort-btn');
+  if (SORT_BY_DISTANCE) {
+    btn.classList.remove('bg-white', 'border-amber-200', 'text-emerald-800');
+    btn.classList.add('bg-emerald-600', 'border-emerald-600', 'text-white');
+  } else {
+    btn.classList.remove('bg-emerald-600', 'border-emerald-600', 'text-white');
+    btn.classList.add('bg-white', 'border-amber-200', 'text-emerald-800');
+  }
+  render();
+});
+
+function openClaimModal(orderId) {
+  const job = JOBS.find(function(j) { return j.orderId === orderId; });
+  SELECTED_PLATE = MY_PLATES[0] || null;
+
+  const plateChips = MY_PLATES.map(function(p) {
+    return '<button onclick="selectPlate(this, \'' + escapeHtml(p) + '\')" data-plate="' + escapeHtml(p) + '" class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' + (p === SELECTED_PLATE ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-amber-50 border-amber-200 text-emerald-800') + '">' + escapeHtml(p) + '</button>';
+  }).join('');
+
+  const customChip = '<button onclick="selectPlate(this, \'__custom__\')" data-plate="__custom__" class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors bg-amber-50 border-amber-200 text-emerald-800">ระบุเอง</button>';
+
+  const distLine = (job.distanceKm != null)
+    ? '<p class="text-amber-700/80">' + icon("navigation", 12, "inline -mt-0.5 mr-1") + job.distanceKm.toFixed(1) + ' กม. จากตำแหน่งปัจจุบัน</p>'
+    : '';
+
+  let content = '<div class="flex items-center justify-between">';
+  content += '<h2 class="text-lg font-bold text-emerald-900">ยืนยันรับงาน</h2>';
+  content += '<button onclick="closeModal()" class="text-amber-400 hover:text-amber-600">' + icon("x", 20) + '</button>';
+  content += '</div>';
+  content += '<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1 text-sm">';
+  content += '<p class="font-semibold text-emerald-900">' + escapeHtml(job.gardenName || job.orderId) + '</p>';
+  content += '<p class="text-amber-700/80">' + formatDateDMY(job.date) + ' · ' + escapeHtml(job.time) + ' · จุดรับ ' + escapeHtml(job.pickup || "—") + '</p>';
+  content += distLine;
+  content += '</div>';
+  content += '<div>';
+  content += '<label class="text-sm text-amber-700 block mb-2">เลือกทะเบียนรถ <span class="text-red-500">*</span></label>';
+  content += '<div class="flex flex-wrap gap-2">' + plateChips + customChip + '</div>';
+  content += '<input id="plate-custom-input" type="text" placeholder="พิมพ์ทะเบียนรถ..." class="hidden w-full mt-2 text-sm font-sans border border-amber-200 rounded-xl px-3 py-2 bg-amber-50/50 focus:outline-none focus:border-emerald-500" oninput="onCustomPlateInput(this.value)">';
+  content += '</div>';
+  content += '<button onclick="confirmClaim(\'' + escapeHtml(orderId) + '\')" id="confirm-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">' + icon("check", 18) + 'ยืนยันรับงาน</button>';
+
+  document.getElementById('modal-content').innerHTML = content;
+  document.getElementById('modal').classList.remove('hidden');
+  document.getElementById('modal').classList.add('flex');
+
+  if (MY_PLATES.length === 0) {
+    selectPlate(document.querySelector('[data-plate="__custom__"]'), '__custom__');
+  }
+}
+
+function selectPlate(el, plate) {
+  document.querySelectorAll('.plate-chip').forEach(function(c) {
+    c.classList.remove('bg-emerald-600', 'border-emerald-600', 'text-white');
+    c.classList.add('bg-amber-50', 'border-amber-200', 'text-emerald-800');
+  });
+  el.classList.remove('bg-amber-50', 'border-amber-200', 'text-emerald-800');
+  el.classList.add('bg-emerald-600', 'border-emerald-600', 'text-white');
+
+  const customInput = document.getElementById('plate-custom-input');
+  if (plate === '__custom__') {
+    customInput.classList.remove('hidden');
+    customInput.focus();
+    SELECTED_PLATE = customInput.value.trim() || null;
+  } else {
+    customInput.classList.add('hidden');
+    SELECTED_PLATE = plate;
+  }
+}
+
+function onCustomPlateInput(val) {
+  SELECTED_PLATE = val.trim() || null;
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  document.getElementById('modal').classList.remove('flex');
+  SELECTED_PLATE = null;
+}
+
+async function confirmClaim(orderId) {
+  if (CLAIMING) return;
+  if (!SELECTED_PLATE) {
+    showToast('กรุณาเลือก/ระบุทะเบียนรถครับ', 'warn');
+    return;
+  }
+
+  CLAIMING = true;
+  const btn = document.getElementById('confirm-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> กำลังบันทึก...';
+
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'claimJob', userId: window._userId, orderId: orderId, plate: SELECTED_PLATE })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      const job = JOBS.find(function(j) { return j.orderId === orderId; });
+      CLAIMED_IDS.add(orderId);
+      if (markers[orderId] && job) {
+        markers[orderId].setIcon(doneIcon);
+        markers[orderId].bindPopup(escapeHtml(job.gardenName) + '<br>รับงานแล้ว').openPopup();
+      }
+      closeModal();
+      FILTER_ORDER_ID = null;
+      JOBS = JOBS.filter(function(j) { return j.orderId !== orderId; });
+      rebuildJobMarkers();
+      render();
+      showToast('✅ รับงาน ' + orderId + ' แล้วครับ ขับขี่ปลอดภัยนะครับ 🙏', 'ok');
+    } else {
+      showToast('❌ ' + (data.error || 'เกิดข้อผิดพลาด'), 'err');
+      if (data.alreadyTaken) {
+        closeModal();
+        loadJobs(false);
+      }
+    }
+  } catch (e) {
+    showToast('❌ เชื่อมต่อไม่ได้ ลองใหม่อีกครั้งครับ', 'err');
+  } finally {
+    CLAIMING = false;
+    const b = document.getElementById('confirm-btn');
+    if (b) {
+      b.disabled = false;
+      b.innerHTML = icon("check", 18) + 'ยืนยันรับงาน';
+    }
+  }
+}
+
+function showToast(msg, type) {
+  const colors = { ok: 'bg-emerald-600', err: 'bg-red-500', warn: 'bg-amber-500' };
+  const el = document.getElementById('toast');
+  el.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 ' + (colors[type] || colors.ok) + ' text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90vw] text-center scale-pop';
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(function() { el.classList.add('hidden'); }, 3200);
+}
+
+async function init() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    const profile = await liff.getProfile();
+    window._userId = profile.userId;
+    initMap();
+    await loadJobs(false);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('loading').innerHTML = '<p class="text-sm text-red-600 px-6 text-center">โหลดไม่สำเร็จ: ' + escapeHtml(e.message || String(e)) + '</p>';
+  }
+}
+
+async function loadJobs(isRefresh) {
+  const btn = document.getElementById('refresh-btn');
+  if (isRefresh && btn) btn.querySelector('.refresh-icon').classList.add('spin');
+
+  try {
+    const res = await fetch(GAS_URL + '?action=getAvailableJobs&userId=' + window._userId);
+    const data = await res.json();
+
+    if (!data.success) {
+      document.querySelector('.max-w-2xl').insertAdjacentHTML('beforeend',
+        '<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 mt-6">' + escapeHtml(data.error || 'เกิดข้อผิดพลาด') + '</div>');
+      document.getElementById('loading').style.display = 'none';
+      return;
+    }
+
+    JOBS = data.jobs || [];
+    MY_PLATES = data.myPlates || [];
+    MY_NAME = data.myName || '';
+    document.getElementById('driver-name').textContent = MY_NAME ? ('สวัสดีครับ ' + MY_NAME) : 'SSB Smart Supply';
+
+    recomputeDistances();
+    rebuildJobMarkers();
+    placeDriverMarker();
+    render();
+    document.getElementById('loading').style.display = 'none';
+  } catch (e) {
+    console.error(e);
+    if (!isRefresh) {
+      document.getElementById('loading').innerHTML = '<p class="text-sm text-red-600 px-6 text-center">เชื่อมต่อไม่ได้</p>';
+    }
+  } finally {
+    if (isRefresh && btn) setTimeout(function() { const i = btn.querySelector('.refresh-icon'); if (i) i.classList.remove('spin'); }, 400);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
