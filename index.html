@@ -478,6 +478,10 @@ async function confirmClaim(orderId) {
     });
 
     const text = await res.text();
+
+    console.log('CLAIM RESPONSE = ', text);
+    alert(text);
+   
     let data;
 
     try {
