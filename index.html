@@ -430,20 +430,7 @@ function selectPlate(el, plate) {
   });
   el.classList.remove('bg-amber-50', 'border-amber-200', 'text-emerald-800');
   el.classList.add('bg-emerald-600', 'border-emerald-600', 'text-white');
-
-  const customInput = document.getElementById('plate-custom-input');
-  if (plate === '__custom__') {
-    customInput.classList.remove('hidden');
-    customInput.focus();
-    SELECTED_PLATE = customInput.value.trim() || null;
-  } else {
-    customInput.classList.add('hidden');
-    SELECTED_PLATE = plate;
-  }
-}
-
-function onCustomPlateInput(val) {
-  SELECTED_PLATE = val.trim() || null;
+  SELECTED_PLATE = plate;
 }
 
 function closeModal() {
