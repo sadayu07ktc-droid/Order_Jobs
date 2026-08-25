@@ -394,8 +394,6 @@ function openClaimModal(orderId) {
     return '<button onclick="selectPlate(this, \'' + escapeHtml(p) + '\')" data-plate="' + escapeHtml(p) + '" class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' + (p === SELECTED_PLATE ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-amber-50 border-amber-200 text-emerald-800') + '">' + escapeHtml(p) + '</button>';
   }).join('');
 
-  const customChip = '<button onclick="selectPlate(this, \'__custom__\')" data-plate="__custom__" class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors bg-amber-50 border-amber-200 text-emerald-800">ระบุเอง</button>';
-
   const distLine = (job.distanceKm != null)
     ? '<p class="text-amber-700/80">' + icon("navigation", 12, "inline -mt-0.5 mr-1") + job.distanceKm.toFixed(1) + ' กม. จากตำแหน่งปัจจุบัน</p>'
     : '';
@@ -411,8 +409,7 @@ function openClaimModal(orderId) {
   content += '</div>';
   content += '<div>';
   content += '<label class="text-sm text-amber-700 block mb-2">เลือกทะเบียนรถ <span class="text-red-500">*</span></label>';
-  content += '<div class="flex flex-wrap gap-2">' + plateChips + customChip + '</div>';
-  content += '<input id="plate-custom-input" type="text" placeholder="พิมพ์ทะเบียนรถ..." class="hidden w-full mt-2 text-sm font-sans border border-amber-200 rounded-xl px-3 py-2 bg-amber-50/50 focus:outline-none focus:border-emerald-500" oninput="onCustomPlateInput(this.value)">';
+  content += '<div class="flex flex-wrap gap-2">' + plateChips + '</div>';
   content += '</div>';
   content += '<button onclick="confirmClaim(\'' + escapeHtml(orderId) + '\')" id="confirm-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">' + icon("check", 18) + 'ยืนยันรับงาน</button>';
 
@@ -421,7 +418,8 @@ function openClaimModal(orderId) {
   document.getElementById('modal').classList.add('flex');
 
   if (MY_PLATES.length === 0) {
-    selectPlate(document.querySelector('[data-plate="__custom__"]'), '__custom__');
+    const wrap = document.querySelector('#modal-content .flex.flex-wrap');
+    if (wrap) wrap.innerHTML = '<p class="text-sm text-red-500">ไม่พบทะเบียนในระบบ กรุณาแจ้งแอดมินเพิ่มคันก่อนรับงาน</p>';
   }
 }
 
