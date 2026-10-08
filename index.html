@@ -180,8 +180,9 @@ const doneIcon = L.divIcon({
 
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([13.140, 101.380], 9);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '© OpenStreetMap, © CARTO', maxZoom: 19, subdomains: 'abcd'
+  // แผนที่ OpenStreetMap (ไม่ต้องใช้คีย์) — เดิมใช้ CARTO light_all แต่ CARTO เริ่มบังคับ API key ขึ้นลายน้ำ "API KEY REQUIRED" (2026-10-08)
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
   }).addTo(map);
   L.control.zoom({ position: 'topright' }).addTo(map);
 
