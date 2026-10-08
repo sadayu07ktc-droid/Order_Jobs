@@ -155,6 +155,7 @@ function openNavigate(orderId) {
 let JOBS = [];
 let MY_PLATES = [];
 let MY_NAME = '';
+let NOT_FARM = '';   // คนขับกลุ่ม Bulk/Packing → ชื่อกลุ่ม (หน้านี้ไม่โชว์งาน)
 /* ── เลือกทะเบียนตอนรับงาน — แบบเดียวกับแอดมินมอบหมายงาน (Order_form) · 2026-10-08 ──
  *   รถพ่วง/CPO (ทะเบียน "แม่,ลูก"): แม่+ลูก (ค่าเริ่ม) · เฉพาะแม่ · แม่+ลูกคันอื่น · ยืมรถคันอื่น
  *   รถเดี่ยว: ทะเบียนตัวเอง · ยืมรถคันอื่น · ระบุเอง
@@ -465,7 +466,10 @@ function render() {
   }
 
   if (list.length === 0) {
-    document.getElementById('job-list').innerHTML = '<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-600">🎉 ตอนนี้ไม่มีงานว่างครับ</div>';
+    document.getElementById('job-list').innerHTML = NOT_FARM
+      // 🆕 คนขับกลุ่ม Bulk/Packing — หน้านี้เป็นงานรถไร่ (backend คืน notFarm) · 2026-10-08
+      ? '<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 space-y-1"><p class="font-semibold text-emerald-900">หน้านี้สำหรับคนขับรถไร่</p><p class="text-sm">คุณอยู่กลุ่ม ' + escapeHtml(NOT_FARM) + ' — แอดมินจะมอบหมายงานให้ทาง LINE ครับ</p></div>'
+      : '<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-600">🎉 ตอนนี้ไม่มีงานว่างครับ</div>';
   } else {
     document.getElementById('job-list').innerHTML = list.map(jobCardHtml).join('');
   }
@@ -653,6 +657,7 @@ async function loadJobs(isRefresh) {
     JOBS = data.jobs || [];
     MY_PLATES = data.myPlates || [];
     MY_NAME = data.myName || '';
+    NOT_FARM = data.notFarm ? (data.group || 'Bulk/Packing') : '';
     loadPlateExtras();   // เตรียมรายการหางว่าง/รถว่าง ไว้ให้ปุ่ม "ลูกคันอื่น / ยืมรถ / ระบุเอง" (เบื้องหลัง)
     document.getElementById('driver-name').textContent = MY_NAME ? ('สวัสดีครับ ' + MY_NAME) : 'SSB Smart Supply';
 
