@@ -155,6 +155,103 @@ function openNavigate(orderId) {
 let JOBS = [];
 let MY_PLATES = [];
 let MY_NAME = '';
+/* ── เลือกทะเบียนตอนรับงาน — แบบเดียวกับแอดมินมอบหมายงาน (Order_form) · 2026-10-08 ──
+ *   รถพ่วง/CPO (ทะเบียน "แม่,ลูก"): แม่+ลูก (ค่าเริ่ม) · เฉพาะแม่ · แม่+ลูกคันอื่น · ยืมรถคันอื่น
+ *   รถเดี่ยว: ทะเบียนตัวเอง · ยืมรถคันอื่น · ระบุเอง
+ *   เดิมแยก "87-5215,87-5329" เป็น 2 ปุ่มให้เลือกป้ายเดียว → ออเดอร์ได้ทะเบียนเดียว ค่าแรงมองเป็นรถเดี่ยว
+ *   ข้อมูล: getAvailableTrailerChildren (หางว่าง) + getAvailableVehicles (รถว่างแยกประเภท) — ตัวเดียวกับ Order_form */
+let PLATE_MODE = null, PLAIN_PLATE = '';
+let PLATE_EXTRA = null, PLATE_EXTRA_P = null;
+function loadPlateExtras() {
+  if (PLATE_EXTRA_P) return PLATE_EXTRA_P;
+  const j = function (a) { return fetch(GAS_URL + '?action=' + a).then(function (r) { return r.json(); }).catch(function () { return {}; }); };
+  PLATE_EXTRA_P = Promise.all([j('getAvailableTrailerChildren'), j('getAvailableVehicles')]).then(function (rs) {
+    PLATE_EXTRA = { children: rs[0].children || [], groups: rs[1].groups || [] };
+    if (!rs[0].success && !rs[1].success) PLATE_EXTRA_P = null;   // พังทั้งคู่ → เปิดใหม่ครั้งหน้าลองโหลดอีก
+    return PLATE_EXTRA;
+  });
+  return PLATE_EXTRA_P;
+}
+const PC_ON = 'bg-emerald-600 border-emerald-600 text-white', PC_OFF = 'bg-amber-50 border-amber-200 text-emerald-800';
+const PL_SEL = 'hidden w-full mt-2 px-3 py-2.5 rounded-xl border border-amber-200 bg-white text-sm text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500';
+function plateChipHtml(mode, label, on, val) {
+  return '<button type="button" onclick="pickPlateMode(this)" data-mode="' + mode + '"' + (val ? ' data-val="' + escapeHtml(val) + '"' : '') +
+    ' class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' + (on ? PC_ON : PC_OFF) + '">' + escapeHtml(label) + '</button>';
+}
+function plateSectionHtml() {
+  const P = MY_PLATES;
+  let chips = '';
+  if (P.length >= 2) {
+    PLATE_MODE = 'pair';
+    chips = plateChipHtml('pair', '🔗 แม่+ลูก (' + P[0] + ',' + P[1] + ')', true) +
+            plateChipHtml('mother', '🚚 เฉพาะแม่ (' + P[0] + ')', false) +
+            plateChipHtml('otherChild', '🔄 แม่+ลูกคันอื่น', false) +
+            plateChipHtml('borrow', '🔄 ยืมรถคันอื่น', false);
+  } else {
+    PLATE_MODE = P.length ? 'plain' : 'borrow'; PLAIN_PLATE = P[0] || '';
+    chips = P.map(function (p, i) { return plateChipHtml('plain', p + ' (รถตัวเอง)', i === 0, p); }).join('') +
+            plateChipHtml('borrow', '🔄 ยืมรถคันอื่น', !P.length) +
+            plateChipHtml('custom', 'ระบุเอง', false);
+  }
+  return '<div class="flex flex-wrap gap-2">' + chips + '</div>' +
+    '<select id="pl-child" class="' + PL_SEL + '"><option value="">-- เลือกลูกคันอื่น --</option></select>' +
+    '<select id="pl-borrow-type" class="' + PL_SEL + '" onchange="onPlBorrowType()"><option value="">-- เลือกประเภทรถที่ยืม --</option></select>' +
+    '<select id="pl-borrow-veh" class="' + PL_SEL + '"><option value="">-- เลือกคันที่ยืม --</option></select>' +
+    '<select id="pl-custom" class="' + PL_SEL + '"><option value="">-- เลือกทะเบียน --</option></select>' +
+    '<p id="pl-borrow-note" class="hidden mt-2 text-xs text-amber-700">🔄 ยืมรถคันอื่น — GPS/ลงเวลาจะอ้างทะเบียนคันนี้</p>';
+}
+function _plEl(id) { return document.getElementById(id); }
+function _plFill(sel, first, items) {   // items = [[value,label]]
+  sel.innerHTML = '<option value="">' + first + '</option>' + items.map(function (it) {
+    return '<option value="' + escapeHtml(it[0]) + '">' + escapeHtml(it[1]) + '</option>'; }).join('');
+}
+async function pickPlateMode(el) {
+  document.querySelectorAll('.plate-chip').forEach(function (c) { c.className = c.className.replace(PC_ON, PC_OFF); });
+  el.className = el.className.replace(PC_OFF, PC_ON);
+  const mode = el.dataset.mode; PLATE_MODE = mode;
+  if (mode === 'plain') PLAIN_PLATE = el.dataset.val || '';
+  _plEl('pl-child').classList.toggle('hidden', mode !== 'otherChild');
+  _plEl('pl-borrow-type').classList.toggle('hidden', mode !== 'borrow');
+  _plEl('pl-borrow-note').classList.toggle('hidden', mode !== 'borrow');
+  _plEl('pl-custom').classList.toggle('hidden', mode !== 'custom');
+  if (mode !== 'borrow') _plEl('pl-borrow-veh').classList.add('hidden');
+  if (['otherChild', 'borrow', 'custom'].indexOf(mode) < 0) return;
+  const target = mode === 'otherChild' ? _plEl('pl-child') : mode === 'borrow' ? _plEl('pl-borrow-type') : _plEl('pl-custom');
+  if (!PLATE_EXTRA) _plFill(target, 'กำลังโหลดรายการรถ…', []);
+  const ex = await loadPlateExtras();
+  if (PLATE_MODE !== mode) return;   // ผู้ใช้กดโหมดอื่นไปแล้วระหว่างรอ
+  if (mode === 'otherChild') {
+    const own = MY_PLATES[1] || '';
+    _plFill(_plEl('pl-child'), '-- เลือกลูกคันอื่น --', ex.children.filter(function (c) { return c.child !== own; })
+      .map(function (c) { return [c.child, c.child + ' (' + (c.ownerName || '—') + ')']; }));
+  } else if (mode === 'borrow') {
+    _plFill(_plEl('pl-borrow-type'), '-- เลือกประเภทรถที่ยืม --', ex.groups.map(function (g) { return [g.type, g.type + ' (ว่าง ' + g.vehicles.length + ' คัน)']; }));
+  } else {
+    const seen = {}, items = [];
+    ex.groups.forEach(function (g) { g.vehicles.forEach(function (v) {
+      String(v.plate || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (p) { if (!seen[p]) { seen[p] = 1; items.push([p, p]); } });
+    }); });
+    _plFill(_plEl('pl-custom'), '-- เลือกทะเบียน --', items);
+  }
+}
+function onPlBorrowType() {
+  const type = _plEl('pl-borrow-type').value, veh = _plEl('pl-borrow-veh');
+  const g = (PLATE_EXTRA && PLATE_EXTRA.groups || []).find(function (x) { return x.type === type; });
+  if (!type || !g) { veh.classList.add('hidden'); return; }
+  _plFill(veh, '-- เลือกคันที่ยืม --', g.vehicles.map(function (v) { return [v.plate, v.plate + ' (' + (v.ownerName || '—') + ' - ' + v.status + ')']; }));   // อาจเป็น "หัว,ลูก"
+  veh.classList.remove('hidden');
+}
+/* ทะเบียนที่จะส่ง — คืน { plate } หรือ { error } */
+function resolvePlate() {
+  const P = MY_PLATES;
+  if (PLATE_MODE === 'pair') return { plate: P[0] + ',' + P[1] };
+  if (PLATE_MODE === 'mother') return { plate: P[0] };
+  if (PLATE_MODE === 'otherChild') { const c = _plEl('pl-child').value; return c ? { plate: P[0] + ',' + c } : { error: 'กรุณาเลือกลูกคันอื่นครับ' }; }
+  if (PLATE_MODE === 'borrow') { const v = _plEl('pl-borrow-veh').value; return v ? { plate: v } : { error: 'กรุณาเลือกประเภท + คันที่ยืมครับ' }; }
+  if (PLATE_MODE === 'custom') { const v = _plEl('pl-custom').value; return v ? { plate: v } : { error: 'กรุณาเลือกทะเบียนครับ' }; }
+  if (PLATE_MODE === 'plain') return PLAIN_PLATE ? { plate: PLAIN_PLATE } : { error: 'กรุณาเลือกทะเบียนรถครับ' };
+  return { error: 'กรุณาเลือก/ระบุทะเบียนรถครับ' };
+}
 let DRIVER_POS = null;
 let DRIVER_POS_IS_REAL = false;
 let SORT_BY_DISTANCE = false;
@@ -389,11 +486,7 @@ document.getElementById('sort-btn').addEventListener('click', function() {
 
 function openClaimModal(orderId) {
   const job = JOBS.find(function(j) { return j.orderId === orderId; });
-  SELECTED_PLATE = MY_PLATES[0] || null;
-
-  const plateChips = MY_PLATES.map(function(p) {
-    return '<button onclick="selectPlate(this, \'' + escapeHtml(p) + '\')" data-plate="' + escapeHtml(p) + '" class="plate-chip px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ' + (p === SELECTED_PLATE ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-amber-50 border-amber-200 text-emerald-800') + '">' + escapeHtml(p) + '</button>';
-  }).join('');
+  SELECTED_PLATE = null;
 
   const distLine = (job.distanceKm != null)
     ? '<p class="text-amber-700/80">' + icon("navigation", 12, "inline -mt-0.5 mr-1") + job.distanceKm.toFixed(1) + ' กม. จากตำแหน่งปัจจุบัน</p>'
@@ -410,7 +503,7 @@ function openClaimModal(orderId) {
   content += '</div>';
   content += '<div>';
   content += '<label class="text-sm text-amber-700 block mb-2">เลือกทะเบียนรถ <span class="text-red-500">*</span></label>';
-  content += '<div class="flex flex-wrap gap-2">' + plateChips + '</div>';
+  content += plateSectionHtml();
   content += '</div>';
   content += '<button onclick="confirmClaim(\'' + escapeHtml(orderId) + '\')" id="confirm-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">' + icon("check", 18) + 'ยืนยันรับงาน</button>';
 
@@ -418,9 +511,9 @@ function openClaimModal(orderId) {
   document.getElementById('modal').classList.remove('hidden');
   document.getElementById('modal').classList.add('flex');
 
-  if (MY_PLATES.length === 0) {
-    const wrap = document.querySelector('#modal-content .flex.flex-wrap');
-    if (wrap) wrap.innerHTML = '<p class="text-sm text-red-500">ไม่พบทะเบียนในระบบ กรุณาแจ้งแอดมินเพิ่มคันก่อนรับงาน</p>';
+  if (MY_PLATES.length === 0) {   // ไม่มีทะเบียนของตัวเอง → เริ่มที่ "ยืมรถคันอื่น" ให้เลือกคันที่ว่าง
+    const b = document.querySelector('#modal-content .plate-chip[data-mode="borrow"]');
+    if (b) pickPlateMode(b);
   }
 }
 
@@ -442,10 +535,9 @@ function closeModal() {
 
 async function confirmClaim(orderId) {
   if (CLAIMING) return;
-  if (!SELECTED_PLATE) {
-    showToast('กรุณาเลือก/ระบุทะเบียนรถครับ', 'warn');
-    return;
-  }
+  const rp = resolvePlate();
+  if (rp.error) { showToast(rp.error, 'warn'); return; }
+  SELECTED_PLATE = rp.plate;
 
   CLAIMING = true;
   const btn = document.getElementById('confirm-btn');
@@ -561,6 +653,7 @@ async function loadJobs(isRefresh) {
     JOBS = data.jobs || [];
     MY_PLATES = data.myPlates || [];
     MY_NAME = data.myName || '';
+    loadPlateExtras();   // เตรียมรายการหางว่าง/รถว่าง ไว้ให้ปุ่ม "ลูกคันอื่น / ยืมรถ / ระบุเอง" (เบื้องหลัง)
     document.getElementById('driver-name').textContent = MY_NAME ? ('สวัสดีครับ ' + MY_NAME) : 'SSB Smart Supply';
 
     recomputeDistances();
